@@ -256,7 +256,33 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
         return -1;
     }
 
+    size_t payload_offset = header_len + 1;
+    if (payload_offset > (size_t)file_size || data_len != (size_t)file_size - payload_offset) {
+        free(buffer);
+        return -1;
+    }
+
+    if (strcmp(type_str, "blob") == 0) {
+        *type_out = OBJ_BLOB;
+    } else if (strcmp(type_str, "tree") == 0) {
+        *type_out = OBJ_TREE;
+    } else if (strcmp(type_str, "commit") == 0) {
+        *type_out = OBJ_COMMIT;
+    } else {
+        free(buffer);
+        return -1;
+    }
+
+    uint8_t *data = malloc(data_len + 1);
+    if (!data) {
+        free(buffer);
+        return -1;
+    }
+    if (data_len > 0) memcpy(data, buffer + payload_offset, data_len);
+    data[data_len] = '\0';
+
+    *data_out = data;
+    *len_out = data_len;
     free(buffer);
-    (void)type_out; (void)data_out; (void)len_out; (void)data_len;
-    return -1;
+    return 0;
 }
