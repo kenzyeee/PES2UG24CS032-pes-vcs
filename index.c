@@ -266,8 +266,57 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+    struct stat st;
+    if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        fprintf(stderr, "error: '%s' is not a regular file\n", path);
+        return -1;
+    }
+    if (st.st_size > UINT32_MAX) {
+        fprintf(stderr, "error: '%s' is too large for the index\n", path);
+        return -1;
+    }
+    if (strlen(path) >= sizeof(index->entries[0].path)) {
+        fprintf(stderr, "error: path is too long: '%s'\n", path);
+        return -1;
+    }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    size_t len = (size_t)st.st_size;
+    void *data = malloc(len ? len : 1);
+    if (!data) {
+        fclose(f);
+        return -1;
+    }
+    if (len > 0 && fread(data, 1, len, f) != len) {
+        free(data);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    ObjectID blob_id;
+    if (object_write(OBJ_BLOB, data, len, &blob_id) != 0) {
+        free(data);
+        return -1;
+    }
+    free(data);
+
+    IndexEntry *entry = index_find(index, path);
+    if (!entry) {
+        if (index->count >= MAX_INDEX_ENTRIES) {
+            fprintf(stderr, "error: index is full\n");
+            return -1;
+        }
+        entry = &index->entries[index->count++];
+    }
+
+    entry->mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+    entry->hash = blob_id;
+    entry->mtime_sec = (uint64_t)st.st_mtime;
+    entry->size = (uint32_t)st.st_size;
+    snprintf(entry->path, sizeof(entry->path), "%s", path);
+
+    return index_save(index);
 }
